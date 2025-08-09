@@ -31,11 +31,11 @@
 
     /* Stage */
     .stage { position: relative; background: #0a0c0e; }
-    canvas#draw { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
-    canvas#overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    canvas#draw { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; z-index: 1; }
+    canvas#overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
 
     /* Video preview (optional) */
-    video#cam { position: absolute; right: 12px; bottom: 12px; width: 260px; max-width: 30vw; border-radius: .6rem; border: 1px solid rgba(255,255,255,.15); box-shadow: var(--shadow); display: none; z-index: 4; transform: scaleX(-1); /* mirror for selfie */ }
+    video#cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; z-index: 0; transform: scaleX(-1); }
     video#cam.show { display: block; }
 
     .status { margin-left: auto; color: var(--muted); }
@@ -58,9 +58,11 @@
       <div class="sep"></div>
       <label>Size <input id="size" type="range" min="1" max="30" value="6"></label>
       <div class="sep"></div>
-      <label><input id="previewToggle" type="checkbox"> Cam preview</label>
+      <label><input id="previewToggle" type="checkbox"> Background video</label>
       <label><input id="landmarksToggle" type="checkbox" checked> Landmarks</label>
       <label><input id="rearToggle" type="checkbox"> Rear camera</label>
+      <label>BG blur <input id="bgBlur" type="range" min="0" max="20" value="2"></label>
+      <label>BG brightness <input id="bgBright" type="range" min="50" max="120" value="80"></label>
       <div class="sep"></div>
       <button id="startBtn" class="btn">Start</button>
       <div class="status" id="status">status: idle</div>
@@ -99,6 +101,8 @@
     const previewToggle = document.getElementById('previewToggle');
     const landmarksToggle = document.getElementById('landmarksToggle');
     const rearToggle = document.getElementById('rearToggle');
+    const blurInput = document.getElementById('bgBlur');
+    const brightInput = document.getElementById('bgBright');
     const startBtn = document.getElementById('startBtn');
     const statusEl = document.getElementById('status');
 
@@ -143,11 +147,19 @@
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       cam.srcObject = stream;
       await cam.play();
+      cam.style.transform = useRear ? 'none' : 'scaleX(-1)';
+      applyCamFilter();
       cam.classList.toggle('show', previewToggle.checked);
       status('camera ready');
     }
 
     function status(msg) { statusEl.textContent = 'status: ' + msg; }
+
+    function applyCamFilter(){
+      const b = Number(blurInput?.value ?? 0);
+      const br = Number(brightInput?.value ?? 100) / 100; // percent -> factor
+      cam.style.filter = `blur(${b}px) brightness(${br})`;
+    }
 
     // Drawing helpers
     function drawStroke(ctx, stroke) {
@@ -275,6 +287,8 @@
     sizeInput.addEventListener('input', e => { brushSize = Number(e.target.value || 6); });
     previewToggle.addEventListener('change', () => cam.classList.toggle('show', previewToggle.checked));
     landmarksToggle.addEventListener('change', () => {/* redrawn each frame */});
+    blurInput?.addEventListener('input', applyCamFilter);
+    brightInput?.addEventListener('input', applyCamFilter);
     rearToggle.addEventListener('change', async () => { useRear = rearToggle.checked; if (running) await openCamera(); });
 
     startBtn.addEventListener('click', async () => {
@@ -312,6 +326,7 @@
 
     // Initial layout
     fitCanvases();
+    applyCamFilter();
   </script>
 
   <noscript>
