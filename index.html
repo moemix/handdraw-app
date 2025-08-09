@@ -56,6 +56,111 @@
   const snapPx = document.getElementById('snapPx');
   const mirrorToggle = document.getElementById('mirror');
   const ctx = canvas.getContext('2d');
+  const hud = document.querySelector('.hud');
+  const infoEl = document.getElementById('info');
+
+  // status dot + text
+  const statusWrap = document.createElement('div');
+  statusWrap.style.display = 'flex';
+  statusWrap.style.gap = '8px';
+  statusWrap.style.alignItems = 'center';
+  statusWrap.innerHTML = `
+    <div id="dbgDot" style="width:8px;height:8px;border-radius:50%;background:#ffb02e"></div>
+    <span id="dbgText" class="mono">init…</span>
+  `;
+  hud.appendChild(statusWrap);
+
+  // scrollable log
+  const logBox = document.createElement('pre');
+  logBox.id = 'dbgLog';
+  logBox.style.maxHeight = '28vh';
+  logBox.style.overflow = 'auto';
+  logBox.style.margin = '6px 0 0 0';
+  logBox.style.borderTop = '1px dashed rgba(255,255,255,.15)';
+  logBox.style.paddingTop = '6px';
+  hud.appendChild(logBox);
+
+  // public helpers
+  window.__setStatus = (level, text) => {
+    const dot = document.getElementById('dbgDot');
+    const t = document.getElementById('dbgText');
+    if (!dot || !t) return;
+    dot.style.background = level === 'ok' ? '#45d483' : level === 'err' ? '#ff6b6b' : '#ffb02e';
+    t.textContent = text;
+  };
+  window.__log = (...args) => {
+    const box = document.getElementById('dbgLog'); if (!box) return;
+    const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    const lines = (box.textContent + '\n' + msg).trim().split('\n').slice(-50);
+    box.textContent = lines.join('\n');
+  };
+
+  // initial state
+  window.__setStatus('warn', 'script loaded — waiting for camera/hand model…');
+
+  // patch startCam to report outcome
+  const _startCam = startCam;
+  startCam = async function() {
+    try {
+      await _startCam();
+      window.__setStatus('warn','camera ✓ — loading hand model…');
+    } catch (e) {
+      window.__setStatus('err','getUserMedia failed');
+      window.__log('getUserMedia error:', e && (e.name || e.message) || e);
+      throw e;
+    }
+  };
+
+  // hook onResults to report detections
+  const _onResults = onResults;
+  onResults = function(results) {
+    try {
+      if (!results || !results.multiHandLandmarks) {
+        window.__setStatus('warn','no results');
+      } else if (results.multiHandLandmarks.length === 0) {
+        window.__setStatus('warn','no hand detected');
+      } else {
+        const lm = results.multiHandLandmarks[0];
+        window.__setStatus('ok', `hand: ${results.multiHandLandmarks.length} — p0=(${lm[0].x.toFixed(3)}, ${lm[0].y.toFixed(3)})`);
+        window.__log('first landmark p0:', lm[0]);
+      }
+    } catch (e) {
+      window.__setStatus('err','onResults crashed');
+      window.__log('onResults error:', e && (e.message || e));
+    }
+    return _onResults(results);
+  };
+
+  // draw a guide so we know overlay is visible + aligned
+  const _drawLandmarks = window.drawLandmarks;
+  window.drawLandmarks = function(landmarks, opts) {
+    _drawLandmarks(landmarks, opts);
+    try {
+      const stage = document.getElementById('stage');
+      const cw = stage.clientWidth, ch = stage.clientHeight;
+      // blue dashed rectangle = actual video drawn area (computed by computeLayout)
+      ctx.save();
+      ctx.strokeStyle = 'rgba(80,160,255,0.9)'; ctx.lineWidth = 2; ctx.setLineDash([6,4]);
+      ctx.strokeRect(layout.offsetX, layout.offsetY, layout.drawnW, layout.drawnH);
+      // center crosshair
+      const c = window.mapPointFromNormalized({x:0.5,y:0.5});
+      ctx.setLineDash([]); ctx.beginPath();
+      ctx.moveTo(c.x-12, c.y); ctx.lineTo(c.x+12, c.y);
+      ctx.moveTo(c.x, c.y-12); ctx.lineTo(c.x, c.y+12);
+      ctx.stroke();
+      ctx.restore();
+    } catch(e) {
+      window.__log('guide draw error:', e && (e.message || e));
+    }
+  };
+
+  // report layout whenever it changes
+  const _updateInfo = updateInfo;
+  updateInfo = function() {
+    _updateInfo();
+    window.__log('layout:', {vw: layout.videoW, vh: layout.videoH, cw: layout.containerW, ch: layout.containerH, scale: +layout.scale.toFixed(3), offX: +layout.offsetX.toFixed(1), offY: +layout.offsetY.toFixed(1)});
+  };
+();
 
   // Keep measurements for mapping
   let layout = {
