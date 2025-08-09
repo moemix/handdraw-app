@@ -192,8 +192,13 @@
       overlayCtx.clearRect(0, 0, overlay.width / devicePixelRatio, overlay.height / devicePixelRatio);
       if (!landmarksToggle.checked) return;
       const du = new DrawingUtils(overlayCtx);
-      for (const lm of results.landmarks) {
+      const lmList = useRear
+        ? results.landmarks
+        : results.landmarks.map(lm => lm.map(p => ({ ...p, x: 1 - p.x })));
+      for (const lm of lmList) {
         du.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS, { lineWidth: 2 });
+        du.drawLandmarks(lm, { radius: 3 });
+      });
         du.drawLandmarks(lm, { radius: 3 });
       }
     }
@@ -206,7 +211,8 @@
     function toCanvasCoord(norm) {
       const w = overlay.width / devicePixelRatio;
       const h = overlay.height / devicePixelRatio;
-      return V(w - norm.x * w, norm.y * h); // mirror horizontally for selfie view
+      const x = useRear ? (norm.x * w) : (w - norm.x * w); // mirror only on front cam
+      return V(x, norm.y * h);
     }
 
     // Gesture thresholds (in pixels)
