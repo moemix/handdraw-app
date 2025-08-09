@@ -48,7 +48,7 @@
   </div>
 
 <script>
-// ------ Display & Overlay Mapper (object-fit: cover compensation) ------
+// ------ Display & Overlay Mapper (object-fit: cover compensation) + MediaPipe Hands ------
 (function() {
   const video = document.getElementById('camera');
   const canvas = document.getElementById('overlay');
@@ -108,7 +108,10 @@
 
   // Public: draw landmarks (array of {x,y} normalized to source video)
   function drawLandmarks(landmarks, {connections, color='white', radius=3, lineWidth=2} = {}) {
-    if (!landmarks || !landmarks.length) return;
+    if (!landmarks || !landmarks.length) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Handle mirroring: video is mirrored via CSS transform, mirror overlay to match
@@ -128,6 +131,7 @@
       ctx.lineWidth = lineWidth; ctx.strokeStyle = color; ctx.globalAlpha = 0.9;
       for (const [a, b] of connections) {
         const p = px[a], q = px[b];
+        if (!p || !q) continue;
         ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y);
       }
       ctx.stroke();
@@ -173,25 +177,80 @@
   }
   startCam();
 
-  // --- Demo mode (optional): press D to simulate a hand with normalized points ---
-  // This helps validate that the mapping stays pixel-perfect across aspect ratios.
-  let demoOn = true;
-  document.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'd') demoOn = !demoOn; });
+  // ===== MediaPipe Hands integration =====
+  // Hand connections (indexes 0..20)
+  const HAND_CONNECTIONS = [
+    [0,1],[1,2],[2,3],[3,4],           // Thumb
+    [0,5],[5,6],[6,7],[7,8],           // Index
+    [5,9],[9,10],[10,11],[11,12],      // Middle
+    [9,13],[13,14],[14,15],[15,16],    // Ring
+    [13,17],[17,18],[18,19],[19,20],   // Pinky
+    [0,5],[5,9],[9,13],[13,17]         // Palm chain
+  ];
 
-  function demoFrame(t) {
-    if (demoOn) {
-      // Build a little animated spiral in normalized video space
-      const n = 21; const pts = []; const cx = 0.5, cy = 0.5; const r = 0.25;
-      for (let i = 0; i < n; i++) {
-        const a = i / (n - 1) * Math.PI * 2 + t * 0.0015;
-        const rr = r * (i / n);
-        pts.push({ x: cx + Math.cos(a) * rr, y: cy + Math.sin(a) * rr });
-      }
-      drawLandmarks(pts, { connections: Array.from({length:n-1}, (_,i)=>[i,i+1]) });
-    }
-    requestAnimationFrame(demoFrame);
+  let hands; // created after scripts load
+
+  // Load MediaPipe Hands dynamically (no external bundler needed)
+  const mpBase = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240';
+  const mpCam = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675469244';
+
+  // Inject scripts
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script'); s.src = src; s.async = true;
+      s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
+    });
   }
-  requestAnimationFrame(demoFrame);
+
+  (async () => {
+    try {
+      await loadScript(mpCam);
+      await loadScript(mpBase);
+
+      // global Hands & Camera now available
+      hands = new Hands({
+        locateFile: (file) => `${mpBase}/${file}`
+      });
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6,
+      });
+
+      hands.onResults(onResults);
+
+      // Use MediaPipe's Camera helper to pump frames
+      const cam = new Camera(video, {
+        onFrame: async () => { await hands.send({image: video}); },
+        width: 1280,
+        height: 720,
+      });
+      cam.start();
+    } catch (e) {
+      console.error('Failed to load MediaPipe Hands', e);
+    }
+  })();
+
+  function onResults(results) {
+    computeLayout(); // ensure mapping uses actual video dims
+
+    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+      drawLandmarks([], {}); // clear
+      return;
+    }
+
+    // We draw only the first hand (extend as needed)
+    const lm = results.multiHandLandmarks[0];
+
+    // MediaPipe gives normalized coords in source video space already
+    drawLandmarks(lm.map(p => ({x: p.x, y: p.y})), {
+      connections: HAND_CONNECTIONS,
+      color: 'white',
+      radius: 3,
+      lineWidth: 2
+    });
+  }
 })();
 </script>
 </body>
