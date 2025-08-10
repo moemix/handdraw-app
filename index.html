@@ -2,327 +2,322 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <title>Hand Draw – Air Sketch</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>handdraw-app — camera background + hand draw</title>
   <style>
     :root{
-      --ui-bg: rgba(18,18,24,0.75);
-      --ui-fg: #e7e9ee;
-      --accent: #7dd3fc;
-      --good: #34d399;
-      --warn: #f59e0b;
-      --danger:#ef4444;
+      --ui-bg: rgba(18,18,20,.7);
+      --ui-fg: #e7e7ea;
+      --accent: #6fd3ff;
     }
-    html,body{height:100%;margin:0;background:#0b0c10;color:var(--ui-fg);font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"}
-    .app{position:fixed;inset:0;display:grid;place-items:center;}
-    .stage{position:relative;width:100%;height:100%;overflow:hidden;background:#000;}
-    video, canvas{position:absolute;inset:0;}
-    video{object-fit:cover;transform:scaleX(-1);}
-    #paint{pointer-events:none;}
-    .hud{position:absolute;inset:0;pointer-events:none;}
+    html, body { height: 100%; margin: 0; }
+    body { background:#000; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color: var(--ui-fg); }
 
-    /* Controls */
-    .controls{position:absolute;left:1rem;bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap;pointer-events:auto;}
-    .btn{appearance:none;border:1px solid #2a2d34;background:var(--ui-bg);color:var(--ui-fg);padding:.5rem .75rem;border-radius:12px;backdrop-filter: blur(6px);cursor:pointer;display:inline-flex;align-items:center;gap:.5rem}
-    .btn:hover{border-color:#40444f}
-    .btn:active{transform:translateY(1px)}
-    .chip{display:inline-flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:999px;border:1px solid #2a2d34;background:var(--ui-bg)}
-    .swatch{width:1rem;height:1rem;border-radius:999px;border:1px solid #0003}
-    .range{display:flex;align-items:center;gap:.5rem;background:var(--ui-bg);padding:.4rem .6rem;border-radius:999px;border:1px solid #2a2d34}
-    .range input{accent-color:var(--accent)}
+    /* Stage */
+    #stage { position: fixed; inset: 0; }
+    #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); /* default mirror like selfie */ }
+    #video.nomirror { transform: none; }
 
-    .status{position:absolute;right:1rem;bottom:1rem;display:flex;gap:.5rem;pointer-events:none}
-    .pill{background:var(--ui-bg);border:1px solid #2a2d34;border-radius:999px;padding:.35rem .6rem}
+    /* Drawing surface */
+    #draw { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
-    .topbar{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:center;padding: .5rem .75rem;gap:.5rem}
-    .title{background:var(--ui-bg);border:1px solid #2a2d34;border-radius:12px;padding:.4rem .6rem}
+    /* HUD */
+    #hud { position: fixed; left: 0; right: 0; top: 0; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding: env(safe-area-inset-top) 12px 8px 12px; }
+    #brand { justify-self: start; font-weight: 600; letter-spacing:.2px; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+    #status { justify-self: center; font-variant-numeric: tabular-nums; background: var(--ui-bg); padding: 6px 10px; border-radius: 999px; box-shadow: 0 6px 16px rgba(0,0,0,.35); }
+    #controls { justify-self: end; display: flex; gap: 8px; flex-wrap: wrap; }
 
-    .start-overlay{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#0b0c10,#0b0c10e6 60%,#0b0c10f2)}
-    .start-card{max-width:520px;margin:0 1rem;background:var(--ui-bg);border:1px solid #2a2d34;border-radius:16px;padding:1rem 1.25rem;backdrop-filter: blur(8px);text-align:center}
-    .start-card h1{margin:.2rem 0 0;font-size:1.2rem}
-    .start-card p{opacity:.85;margin:.5rem 0 1rem}
-    .start-card button{pointer-events:auto}
+    .pill { display:inline-flex; align-items:center; gap: 8px; background: var(--ui-bg); padding: 6px 10px; border-radius: 999px; box-shadow: 0 6px 16px rgba(0,0,0,.35); backdrop-filter: blur(6px); }
+    .btn { cursor:pointer; border:1px solid rgba(255,255,255,.12); padding: 6px 10px; border-radius: 999px; background: var(--ui-bg); color: var(--ui-fg); }
+    .btn:active { transform: translateY(1px); }
+    .switch { display:inline-flex; align-items:center; gap:6px; }
+    input[type="range"]{ accent-color: var(--accent); }
+    input[type="color"]{ width: 30px; height: 24px; border:none; background: transparent; }
 
-    .debug{position:absolute;left:1rem;top:4.25rem;max-width:min(46ch,80vw);background:var(--ui-bg);border:1px solid #2a2d34;border-radius:12px;padding:.5rem .75rem;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:12px;line-height:1.25;opacity:.85;pointer-events:auto}
+    #help { position: fixed; left: 12px; right: 12px; bottom: env(safe-area-inset-bottom); display:flex; justify-content:center; }
+    #help .pill { opacity:.9; }
 
-    @media (max-width:640px){
-      .debug{display:none}
+    /* Landmark debug */
+    #landmarks { position: absolute; inset: 0; pointer-events: none; }
+
+    /* Hide on install banners overlays (iOS) */
+    @supports (-webkit-touch-callout: none){
+      body { -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
     }
   </style>
-  <!-- MediaPipe Hands (legacy JS API) -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <!-- MediaPipe Hands via CDN (Tasks Vision) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm/vision_wasm_internal.js" async></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17"></script>
 </head>
 <body>
-  <div class="app">
-    <div class="stage" id="stage">
-      <video id="video" playsinline muted></video>
-      <!-- Where we draw video + landmarks -->
-      <canvas id="view"></canvas>
-      <!-- Persistent paint layer -->
-      <canvas id="paint"></canvas>
-      <div class="hud">
-        <div class="topbar">
-          <div class="title">Hand Draw – Air Sketch</div>
-          <div class="pill" id="hint">Gesture: pinch to draw · open palm = idle</div>
-        </div>
-        <div class="debug" id="debug"></div>
-        <div class="controls">
-          <button class="btn" id="btnClear" title="Clear (double tap screen on mobile)">🧹 Clear</button>
-          <label class="chip" title="Color">
-            <span>Color</span>
-            <input id="color" type="color" value="#7dd3fc" style="background:transparent;border:none;width:2rem;height:1.75rem;padding:0;cursor:pointer" />
-          </label>
-          <label class="range" title="Brush size">
-            <span>Size</span>
-            <input id="size" type="range" min="2" max="30" value="6" />
-          </label>
-          <button class="btn" id="btnToggleMirror" title="Flip view (mirroring)">↔︎ Mirror</button>
-          <button class="btn" id="btnGuide" title="Show/hide guides">✳︎ Guides</button>
-        </div>
-        <div class="status">
-          <div class="pill" id="statMode">Mode: idle</div>
-          <div class="pill" id="statFps">FPS: –</div>
-        </div>
-      </div>
-      <div class="start-overlay" id="start">
-        <div class="start-card">
-          <h1>Hand‑draw in the air</h1>
-          <p>This runs in your browser. It needs your camera. Pinch your thumb and index finger to draw. Open palm to stop. Double‑tap to clear.</p>
-          <button class="btn" id="btnStart">Enable Camera</button>
-        </div>
-      </div>
+  <div id="stage">
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="draw"></canvas>
+    <canvas id="landmarks"></canvas>
+  </div>
+
+  <div id="hud">
+    <div id="brand">handdraw-app</div>
+    <div id="status">loading…</div>
+    <div id="controls">
+      <label class="switch pill"><input type="checkbox" id="mirrorToggle" checked><span>Mirror</span></label>
+      <label class="switch pill"><input type="checkbox" id="landmarkToggle"><span>Landmarks</span></label>
+      <label class="pill">Brush <input id="brushSize" type="range" min="1" max="20" value="4"> <input id="brushColor" type="color" value="#eeeeee"></label>
+      <button class="btn" id="clearBtn">Clear</button>
+      <button class="btn" id="saveBtn">Save PNG</button>
     </div>
   </div>
 
+  <div id="help"><div class="pill">Point with your index finger to draw • Pinch index+thumb to lift pen • Raise open hand to stop</div></div>
+
 <script>
-(() => {
+(async function(){
+  const status = (msg)=> document.getElementById('status').textContent = msg;
   const video = document.getElementById('video');
-  const view = document.getElementById('view');
-  const paint = document.getElementById('paint');
-  const stage = document.getElementById('stage');
-  const debugEl = document.getElementById('debug');
-  const hint = document.getElementById('hint');
-  const statMode = document.getElementById('statMode');
-  const statFps = document.getElementById('statFps');
-  const btnStart = document.getElementById('btnStart');
-  const startOverlay = document.getElementById('start');
+  const draw = document.getElementById('draw');
+  const lmCanvas = document.getElementById('landmarks');
+  const dctx = draw.getContext('2d');
+  const lmctx = lmCanvas.getContext('2d');
 
-  const btnClear = document.getElementById('btnClear');
-  const colorPicker = document.getElementById('color');
-  const sizeRange = document.getElementById('size');
-  const btnToggleMirror = document.getElementById('btnToggleMirror');
-  const btnGuide = document.getElementById('btnGuide');
+  // UI
+  const mirrorToggle = document.getElementById('mirrorToggle');
+  const landmarkToggle = document.getElementById('landmarkToggle');
+  const brushSize = document.getElementById('brushSize');
+  const brushColor = document.getElementById('brushColor');
+  const clearBtn = document.getElementById('clearBtn');
+  const saveBtn = document.getElementById('saveBtn');
 
-  let showGuides = true;
-  let mirrored = true; // mirror the preview by default (selfie view)
+  // Keep DPR crisp
+  function fitCanvas(c){
+    const rect = c.getBoundingClientRect();
+    const ratio = Math.max(1, window.devicePixelRatio || 1);
+    if (c.width !== Math.round(rect.width*ratio) || c.height !== Math.round(rect.height*ratio)){
+      c.width = Math.round(rect.width*ratio);
+      c.height = Math.round(rect.height*ratio);
+    }
+  }
+  function fitAll(){
+    fitCanvas(draw); fitCanvas(lmCanvas);
+  }
+  addEventListener('resize', fitAll);
 
-  // Layout + projection state for cover-fit rendering
-  let cover = {sx:0, sy:0, sw:0, sh:0, dx:0, dy:0, dw:0, dh:0, srcW:0, srcH:0};
+  // Camera
+  async function getStream(){
+    // Prefer front camera on phones
+    const constraints = { audio:false, video:{ facingMode: 'user', width:{ideal:1280}, height:{ideal:720} } };
+    return navigator.mediaDevices.getUserMedia(constraints);
+  }
+
+  try{
+    const stream = await getStream();
+    video.srcObject = stream;
+    await video.play();
+  }catch(e){ status('camera blocked'); console.error(e); return; }
+
+  // Mirror control
+  function updateMirror(){
+    if (mirrorToggle.checked) video.classList.remove('nomirror');
+    else video.classList.add('nomirror');
+  }
+  mirrorToggle.addEventListener('change', updateMirror);
+  updateMirror();
 
   // Drawing state
-  let drawing = false; // active when pinching
-  let lastPt = null;   // last fingertip position in canvas space
-  let brushColor = colorPicker.value;
-  let brushSize = parseFloat(sizeRange.value);
+  let lastPoint = null;
+  let penDown = false; // true while pointing with index only
+  let smoothing = 0.65; // low-pass filter for tips
+  let tipFiltered = null;
 
-  // FPS meter
-  let lastTime = performance.now();
-  let frames = 0, fps = 0;
+  // Init MediaPipe Hands (Tasks Vision)
+  const { FilesetResolver, HandLandmarker, DrawingUtils } = window['@mediapipe/tasks-vision'];
+  status('loading model…');
+  const filesetResolver = await FilesetResolver.forVisionTasks(
+    // Use CDN hosted assets
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm'
+  );
 
-  function logDebug(lines){
-    debugEl.textContent = lines.join('\n');
-  }
-
-  function resize(){
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const rect = stage.getBoundingClientRect();
-
-    // Size canvases for crisp rendering
-    [view, paint].forEach(c => { c.width = rect.width * dpr; c.height = rect.height * dpr; c.style.width = rect.width + 'px'; c.style.height = rect.height + 'px'; });
-
-    // Compute object-fit: cover parameters for drawing the source video/image into the view canvas
-    const srcW = video.videoWidth || 1280;
-    const srcH = video.videoHeight || 720;
-    cover.srcW = srcW; cover.srcH = srcH;
-
-    const dstW = view.width; const dstH = view.height;
-    const scale = Math.max(dstW/srcW, dstH/srcH);
-    const sw = srcW * scale;
-    const sh = srcH * scale;
-    const sx = (dstW - sw) / 2;
-    const sy = (dstH - sh) / 2;
-    cover = {sx, sy, sw, sh, dx:sx, dy:sy, dw:sw, dh:sh, srcW, srcH};
-  }
-
-  window.addEventListener('resize', resize);
-
-  // MediaPipe Hands setup
-  const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-  hands.setOptions({
-    maxNumHands: 1,
-    modelComplexity: 1,
+  const handLandmarker = await HandLandmarker.createFromOptions(filesetResolver, {
+    baseOptions: { modelAssetPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.17/wasm/hand_landmarker.task' },
+    numHands: 1,
+    minTrackingConfidence: 0.5,
     minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
+    runningMode: 'VIDEO'
   });
 
-  hands.onResults(onResults);
+  status('ready');
+  fitAll();
 
-  let camera;
-  btnStart.addEventListener('click', async () => {
-    startOverlay.style.display = 'none';
-    try{
-      camera = new Camera(video, {
-        onFrame: async () => {
-          await hands.send({image: video});
-        },
-        width: 1280,
-        height: 720
-      });
-      await camera.start();
-      // Wait for first frame to size correctly
-      video.addEventListener('loadedmetadata', resize, {once:true});
-      resize();
-    }catch(err){
-      alert('Failed to start camera: ' + err.message);
-      startOverlay.style.display = 'grid';
-    }
-  });
+  // Utilities
+  function videoToCanvasCoords(normX, normY){
+    // normX/normY are in [0..1] in video space (left->right of the *unmirrored* video frame)
+    const mirrored = mirrorToggle.checked;
 
-  // Controls
-  btnClear.addEventListener('click', () => clearPaint());
-  let lastTap=0; stage.addEventListener('touchend', () => { const now=Date.now(); if(now-lastTap<300) clearPaint(); lastTap=now; }, {passive:true});
+    // Compute draw canvas size and aspect cover mapping
+    const vW = video.videoWidth || 1280;
+    const vH = video.videoHeight || 720;
+    const cW = draw.width; // device pixels
+    const cH = draw.height;
 
-  colorPicker.addEventListener('input', e => { brushColor = e.target.value; });
-  sizeRange.addEventListener('input', e => { brushSize = parseFloat(e.target.value); });
-  btnToggleMirror.addEventListener('click', () => { mirrored = !mirrored; video.style.transform = mirrored? 'scaleX(-1)': 'none'; });
-  btnGuide.addEventListener('click', () => { showGuides=!showGuides; });
-
-  function clearPaint(){
-    const pctx = paint.getContext('2d');
-    pctx.clearRect(0,0,paint.width,paint.height);
-  }
-
-  // Map normalized landmark to canvas coords accounting for cover-fit and mirroring
-  function lmToCanvas(lm){
-    // MediaPipe gives x,y normalized to [0,1] over source dimensions, x to the right on the source image
-    let x = lm.x * cover.srcW;
-    let y = lm.y * cover.srcH;
-    // Scale to destination using the same cover scale
-    const scale = Math.max(view.width/cover.srcW, view.height/cover.srcH);
-    x = x * scale + cover.sx;
-    y = y * scale + cover.sy;
-    if(mirrored){
-      // Mirror around center of the destination rect (cover area)
-      const left = cover.sx, right = cover.sx + cover.sw;
-      x = right - (x - left);
-    }
-    return {x, y, z: lm.z};
-  }
-
-  function pinchDistance(lms){
-    const tip = lmToCanvas(lms[8]); // index tip
-    const th  = lmToCanvas(lms[4]); // thumb tip
-    const dx = tip.x - th.x, dy = tip.y - th.y; return Math.hypot(dx,dy);
-  }
-
-  function isOpenPalm(lms){
-    // Simple heuristic: average curl of fingers (tip to pip distance vs mcp to pip). Here: if pinch distance > threshold and middle tip far from palm
-    const d = pinchDistance(lms);
-    return d > 80; // pixels at canvas scale
-  }
-
-  function onResults(results){
-    const vctx = view.getContext('2d');
-    const pctx = paint.getContext('2d');
-
-    // FPS calc
-    frames++; const now = performance.now(); if(now - lastTime > 1000){ fps = frames; frames=0; lastTime = now; statFps.textContent = `FPS: ${fps}`; }
-
-    // Draw the camera frame into the view canvas using cover-fit
-    vctx.clearRect(0,0,view.width,view.height);
-    if(video.videoWidth && video.videoHeight){
-      vctx.save();
-      // Draw video respecting object-fit: cover
-      // We use drawImage with already computed dst rect
-      vctx.drawImage(video, cover.dx, cover.dy, cover.dw, cover.dh);
-      vctx.restore();
-    }
-
-    // Default mode
-    let mode = 'idle';
-
-    if(results.multiHandLandmarks && results.multiHandLandmarks.length){
-      const lms = results.multiHandLandmarks[0];
-      const tip = lmToCanvas(lms[8]);
-      const pinch = pinchDistance(lms);
-
-      // Gesture logic
-      const pinchActive = pinch < 40; // pixels
-      if(pinchActive){ mode = 'draw'; } else if(isOpenPalm(lms)){ mode = 'idle'; }
-
-      // Update drawing state
-      if(mode === 'draw'){
-        const pt = {x: tip.x, y: tip.y};
-        pctx.lineCap = 'round';
-        pctx.lineJoin = 'round';
-        pctx.strokeStyle = brushColor;
-        pctx.lineWidth = brushSize;
-        if(lastPt){
-          pctx.beginPath();
-          pctx.moveTo(lastPt.x, lastPt.y);
-          pctx.lineTo(pt.x, pt.y);
-          pctx.stroke();
-        }
-        lastPt = pt;
-      } else {
-        lastPt = null;
-      }
-
-      // Guides & landmarks
-      if(showGuides){
-        // Draw landmarks with MediaPipe utils but transformed
-        const path = new Path2D();
-        for(const lm of lms){
-          const p = lmToCanvas(lm);
-          path.moveTo(p.x+0.01,p.y);
-          path.arc(p.x,p.y, 4, 0, Math.PI*2);
-        }
-        vctx.fillStyle = 'rgba(255,255,255,0.9)';
-        vctx.fill(path);
-
-        // Fingertip cursor
-        vctx.beginPath();
-        vctx.arc(tip.x, tip.y, pinchActive ? 14 : 8, 0, Math.PI*2);
-        vctx.lineWidth = 2;
-        vctx.strokeStyle = pinchActive ? 'rgba(52,211,153,0.9)' : 'rgba(125,211,252,0.9)';
-        vctx.stroke();
-      }
-
-      // Status
-      statMode.textContent = `Mode: ${mode}`;
-      hint.textContent = pinchActive ? 'Drawing… release pinch to stop' : 'Pinch to draw · open palm = idle';
-
-      // Debug
-      logDebug([
-        `landmarks: ${lms.length}`,
-        `pinch(px): ${pinch.toFixed(1)}`,
-        `mode: ${mode}`,
-        `mirror: ${mirrored}`,
-        `brush: ${brushColor} @ ${brushSize}px`,
-        `cover: sx=${cover.sx.toFixed(1)} sy=${cover.sy.toFixed(1)} sw=${cover.sw.toFixed(1)} sh=${cover.sh.toFixed(1)}`
-      ]);
-
+    // Object-fit: cover mapping from video to canvas
+    const videoAspect = vW / vH;
+    const canvasAspect = cW / cH;
+    let renderW, renderH, offsetX, offsetY;
+    if (canvasAspect > videoAspect){
+      // Canvas is wider -> video height fills, sides cropped
+      renderH = cH; renderW = Math.round(cH * videoAspect);
+      offsetX = Math.round((cW - renderW)/2); offsetY = 0;
     } else {
-      statMode.textContent = 'Mode: no-hand';
-      hint.textContent = 'Show your hand to start';
-      lastPt = null;
+      // Canvas is taller -> video width fills, top/bottom cropped
+      renderW = cW; renderH = Math.round(cW / videoAspect);
+      offsetX = 0; offsetY = Math.round((cH - renderH)/2);
     }
+
+    // Convert normalized video coords to rendered pixel coords
+    let x = Math.round(normX * renderW) + offsetX;
+    let y = Math.round(normY * renderH) + offsetY;
+
+    // If the video is mirrored, flip X around the *render region*
+    if (mirrored){
+      x = (offsetX + renderW) - (x - offsetX);
+    }
+    return {x, y};
   }
 
-  // Kick an immediate size for initial layout (helps on desktop before camera starts)
-  resize();
+  function drawPoint(p0, p1){
+    dctx.lineCap = 'round';
+    dctx.lineJoin = 'round';
+    dctx.strokeStyle = brushColor.value;
+    dctx.lineWidth = Number(brushSize.value) * (window.devicePixelRatio||1);
+    dctx.beginPath();
+    dctx.moveTo(p0.x, p0.y);
+    dctx.lineTo(p1.x, p1.y);
+    dctx.stroke();
+  }
+
+  clearBtn.addEventListener('click', ()=>{
+    dctx.clearRect(0,0,draw.width, draw.height);
+  });
+
+  saveBtn.addEventListener('click', ()=>{
+    // Composite drawing over current video frame for a fun export
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = draw.width; exportCanvas.height = draw.height;
+    const ectx = exportCanvas.getContext('2d');
+
+    // Paint current video pixels in the same cover mapping + mirror state
+    const vW = video.videoWidth || 1280;
+    const vH = video.videoHeight || 720;
+    const cW = exportCanvas.width; const cH = exportCanvas.height;
+    const videoAspect = vW / vH; const canvasAspect = cW / cH;
+    let renderW, renderH, offsetX, offsetY;
+    if (canvasAspect > videoAspect){
+      renderH = cH; renderW = Math.round(cH * videoAspect); offsetX = Math.round((cW - renderW)/2); offsetY = 0;
+    } else {
+      renderW = cW; renderH = Math.round(cW / videoAspect); offsetX = 0; offsetY = Math.round((cH - renderH)/2);
+    }
+    if (mirrorToggle.checked){
+      ectx.save();
+      ectx.translate(offsetX + renderW, 0);
+      ectx.scale(-1, 1);
+      ectx.drawImage(video, offsetX, offsetY, renderW, renderH);
+      ectx.restore();
+    } else {
+      ectx.drawImage(video, offsetX, offsetY, renderW, renderH);
+    }
+
+    // Overlay drawing
+    ectx.drawImage(draw, 0, 0);
+
+    const a = document.createElement('a');
+    a.href = exportCanvas.toDataURL('image/png');
+    a.download = 'handdraw.png';
+    a.click();
+  });
+
+  // Gesture helpers
+  function isIndexPointing(landmarks){
+    // Simple heuristic: index extended, middle & ring flexed
+    const tip = landmarks[8];
+    const pip = landmarks[6];
+    const midTip = landmarks[12];
+    const ringTip = landmarks[16];
+    const isIndexExtended = tip.y < pip.y; // y up in normalized coords
+    const othersBent = (midTip.y > landmarks[10].y) && (ringTip.y > landmarks[14].y);
+    return isIndexExtended && othersBent;
+  }
+  function isPinch(landmarks){
+    const i = landmarks[8]; const t = landmarks[4];
+    const dx = i.x - t.x; const dy = i.y - t.y;
+    const dist = Math.hypot(dx, dy);
+    return dist < 0.05; // normalized
+  }
+  function openPalm(landmarks){
+    // Thumb + pinky far apart
+    const t = landmarks[4]; const p = landmarks[20];
+    const dx = t.x - p.x; const dy = t.y - p.y;
+    return Math.hypot(dx,dy) > 0.4;
+  }
+
+  // Main loop
+  let lastVideoTime = -1;
+  async function tick(){
+    const vTime = video.currentTime;
+    if (vTime === lastVideoTime){ requestAnimationFrame(tick); return; }
+    lastVideoTime = vTime;
+
+    fitAll();
+
+    const res = await handLandmarker.detectForVideo(video, vTime);
+
+    // Clear landmarks layer
+    lmctx.clearRect(0,0,lmCanvas.width, lmCanvas.height);
+
+    if (res && res.landmarks && res.landmarks[0]){
+      const lm = res.landmarks[0];
+
+      // Toggle pen state
+      if (openPalm(lm)) penDown = false; // safety off
+      else if (isPinch(lm)) penDown = false; // lift pen on pinch
+      else if (isIndexPointing(lm)) penDown = true;
+
+      // Tip position (index fingertip)
+      const tip = lm[8];
+
+      // Low-pass filter to stabilize
+      if (!tipFiltered) tipFiltered = {x: tip.x, y: tip.y};
+      tipFiltered.x = tipFiltered.x * smoothing + tip.x * (1 - smoothing);
+      tipFiltered.y = tipFiltered.y * smoothing + tip.y * (1 - smoothing);
+
+      const p = videoToCanvasCoords(tipFiltered.x, tipFiltered.y);
+
+      if (penDown){
+        if (lastPoint) drawPoint(lastPoint, p);
+        lastPoint = p;
+      } else {
+        lastPoint = null;
+      }
+
+      // Optional landmark rendering
+      if (landmarkToggle.checked){
+        lmctx.save();
+        // Draw points in canvas space using same mapping
+        for (const idx of [0,4,5,8,12,16,20]){
+          const q = videoToCanvasCoords(lm[idx].x, lm[idx].y);
+          lmctx.beginPath();
+          lmctx.arc(q.x, q.y, 5*(window.devicePixelRatio||1), 0, Math.PI*2);
+          lmctx.fillStyle = idx===8 ? '#4ff' : 'rgba(255,255,255,.75)';
+          lmctx.fill();
+        }
+        lmctx.restore();
+      }
+    } else {
+      lastPoint = null;
+    }
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
 })();
 </script>
 </body>
