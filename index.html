@@ -17,7 +17,7 @@
     .app{position:fixed;inset:0;display:grid;place-items:center;}
     .stage{position:relative;width:100%;height:100%;overflow:hidden;background:#000;}
     video, canvas{position:absolute;inset:0;}
-    video{object-fit:cover;transform:scaleX(-1);}
+    video{object-fit:cover;transform:scaleX(-1);} /* selfie view by default */
     #paint{pointer-events:none;}
     .hud{position:absolute;inset:0;pointer-events:none;}
 
@@ -57,8 +57,9 @@
 <body>
   <div class="app">
     <div class="stage" id="stage">
+      <!-- Keep the video element purely as the visual background; we no longer redraw it onto the canvas -->
       <video id="video" playsinline muted></video>
-      <!-- Where we draw video + landmarks -->
+      <!-- Overlay for guides/landmarks -->
       <canvas id="view"></canvas>
       <!-- Persistent paint layer -->
       <canvas id="paint"></canvas>
@@ -76,7 +77,8 @@
           </label>
           <label class="range" title="Brush size">
             <span>Size</span>
-            <input id="size" type="range" min="2" max="30" value="6" />
+            <!-- Bigger range & default for crayon look -->
+            <input id="size" type="range" min="4" max="50" value="14" />
           </label>
           <button class="btn" id="btnToggleMirror" title="Flip view (mirroring)">↔︎ Mirror</button>
           <button class="btn" id="btnGuide" title="Show/hide guides">✳︎ Guides</button>
@@ -122,7 +124,6 @@
   let cover = {sx:0, sy:0, sw:0, sh:0, dx:0, dy:0, dw:0, dh:0, srcW:0, srcH:0};
 
   // Drawing state
-  let drawing = false; // active when pinching
   let lastPt = null;   // last fingertip position in canvas space
   let brushColor = colorPicker.value;
   let brushSize = parseFloat(sizeRange.value);
@@ -132,7 +133,7 @@
   let frames = 0, fps = 0;
 
   function logDebug(lines){
-    debugEl.textContent = lines.join('\n');
+    debugEl.textContent = lines.join('\\n');
   }
 
   function resize(){
@@ -142,7 +143,8 @@
     // Size canvases for crisp rendering
     [view, paint].forEach(c => { c.width = rect.width * dpr; c.height = rect.height * dpr; c.style.width = rect.width + 'px'; c.style.height = rect.height + 'px'; });
 
-    // Compute object-fit: cover parameters for drawing the source video/image into the view canvas
+    // Compute object-fit: cover parameters for mapping landmarks onto the overlaid canvases,
+    // matching the DOM video element which also uses object-fit: cover.
     const srcW = video.videoWidth || 1280;
     const srcH = video.videoHeight || 720;
     cover.srcW = srcW; cover.srcH = srcH;
@@ -170,13 +172,11 @@
   hands.onResults(onResults);
 
   let camera;
-  btnStart.addEventListener('click', async () => {
+  document.getElementById('btnStart').addEventListener('click', async () => {
     startOverlay.style.display = 'none';
     try{
       camera = new Camera(video, {
-        onFrame: async () => {
-          await hands.send({image: video});
-        },
+        onFrame: async () => { await hands.send({image: video}); },
         width: 1280,
         height: 720
       });
@@ -196,7 +196,10 @@
 
   colorPicker.addEventListener('input', e => { brushColor = e.target.value; });
   sizeRange.addEventListener('input', e => { brushSize = parseFloat(e.target.value); });
-  btnToggleMirror.addEventListener('click', () => { mirrored = !mirrored; video.style.transform = mirrored? 'scaleX(-1)': 'none'; });
+  btnToggleMirror.addEventListener('click', () => {
+    mirrored = !mirrored;
+    video.style.transform = mirrored? 'scaleX(-1)': 'none'; // keep DOM video and overlay in sync
+  });
   btnGuide.addEventListener('click', () => { showGuides=!showGuides; });
 
   function clearPaint(){
@@ -221,6 +224,7 @@
     return {x, y, z: lm.z};
   }
 
+  // Slightly larger pinch tolerance for easier drawing
   function pinchDistance(lms){
     const tip = lmToCanvas(lms[8]); // index tip
     const th  = lmToCanvas(lms[4]); // thumb tip
@@ -228,9 +232,60 @@
   }
 
   function isOpenPalm(lms){
-    // Simple heuristic: average curl of fingers (tip to pip distance vs mcp to pip). Here: if pinch distance > threshold and middle tip far from palm
+    // Simple heuristic: consider open when pinch distance is large
     const d = pinchDistance(lms);
-    return d > 80; // pixels at canvas scale
+    return d > 100; // easier to exit drawing
+  }
+
+  // Hand "bones" (skeleton) connections (indices per MediaPipe Hands landmark spec)
+  const HAND_BONES = [
+    // Thumb
+    [0,1],[1,2],[2,3],[3,4],
+    // Index
+    [0,5],[5,6],[6,7],[7,8],
+    // Middle
+    [0,9],[9,10],[10,11],[11,12],
+    // Ring
+    [0,13],[13,14],[14,15],[15,16],
+    // Pinky
+    [0,17],[17,18],[18,19],[19,20],
+    // Palm cross-links (for nicer mesh)
+    [5,9],[9,13],[13,17]
+  ];
+
+  function drawBones(ctx, lms){
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(200,220,255,0.9)';
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for(const [a,b] of HAND_BONES){
+      const pa = lmToCanvas(lms[a]);
+      const pb = lmToCanvas(lms[b]);
+      ctx.moveTo(pa.x, pa.y);
+      ctx.lineTo(pb.x, pb.y);
+    }
+    ctx.stroke();
+  }
+
+  // Crayon-like stroke: draw multiple jittered parallel strokes with partial alpha
+  function crayonStroke(pctx, from, to, color, baseSize){
+    const layers = 5;
+    for(let i=0;i<layers;i++){
+      const t = i/(layers-1);
+      const jitter = (Math.random()-0.5) * (baseSize*0.35);
+      const jitter2 = (Math.random()-0.5) * (baseSize*0.35);
+      pctx.strokeStyle = color;
+      pctx.globalAlpha = 0.5 - 0.07*i; // layered transparency
+      pctx.lineWidth = baseSize * (0.9 + Math.random()*0.25);
+      pctx.lineCap = 'round';
+      pctx.lineJoin = 'round';
+      pctx.beginPath();
+      pctx.moveTo(from.x + jitter, from.y + jitter2);
+      pctx.lineTo(to.x + jitter2, to.y + jitter);
+      pctx.stroke();
+    }
+    pctx.globalAlpha = 1;
   }
 
   function onResults(results){
@@ -240,15 +295,8 @@
     // FPS calc
     frames++; const now = performance.now(); if(now - lastTime > 1000){ fps = frames; frames=0; lastTime = now; statFps.textContent = `FPS: ${fps}`; }
 
-    // Draw the camera frame into the view canvas using cover-fit
+    // Clear overlay canvas
     vctx.clearRect(0,0,view.width,view.height);
-    if(video.videoWidth && video.videoHeight){
-      vctx.save();
-      // Draw video respecting object-fit: cover
-      // We use drawImage with already computed dst rect
-      vctx.drawImage(video, cover.dx, cover.dy, cover.dw, cover.dh);
-      vctx.restore();
-    }
 
     // Default mode
     let mode = 'idle';
@@ -259,21 +307,14 @@
       const pinch = pinchDistance(lms);
 
       // Gesture logic
-      const pinchActive = pinch < 40; // pixels
+      const pinchActive = pinch < 60; // easier threshold
       if(pinchActive){ mode = 'draw'; } else if(isOpenPalm(lms)){ mode = 'idle'; }
 
       // Update drawing state
       if(mode === 'draw'){
         const pt = {x: tip.x, y: tip.y};
-        pctx.lineCap = 'round';
-        pctx.lineJoin = 'round';
-        pctx.strokeStyle = brushColor;
-        pctx.lineWidth = brushSize;
         if(lastPt){
-          pctx.beginPath();
-          pctx.moveTo(lastPt.x, lastPt.y);
-          pctx.lineTo(pt.x, pt.y);
-          pctx.stroke();
+          crayonStroke(pctx, lastPt, pt, brushColor, brushSize);
         }
         lastPt = pt;
       } else {
@@ -282,7 +323,10 @@
 
       // Guides & landmarks
       if(showGuides){
-        // Draw landmarks with MediaPipe utils but transformed
+        // Skeleton / bones
+        drawBones(vctx, lms);
+
+        // Landmarks
         const path = new Path2D();
         for(const lm of lms){
           const p = lmToCanvas(lm);
@@ -294,9 +338,9 @@
 
         // Fingertip cursor
         vctx.beginPath();
-        vctx.arc(tip.x, tip.y, pinchActive ? 14 : 8, 0, Math.PI*2);
-        vctx.lineWidth = 2;
-        vctx.strokeStyle = pinchActive ? 'rgba(52,211,153,0.9)' : 'rgba(125,211,252,0.9)';
+        vctx.arc(tip.x, tip.y, pinchActive ? 16 : 10, 0, Math.PI*2);
+        vctx.lineWidth = 3;
+        vctx.strokeStyle = pinchActive ? 'rgba(52,211,153,0.95)' : 'rgba(125,211,252,0.95)';
         vctx.stroke();
       }
 
