@@ -1,329 +1,137 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-  <title>Hand Draw – Air Sketch</title>
-  <style>
-    :root{
-      --ui-bg: rgba(18,18,24,0.75);
-      --ui-fg: #e7e9ee;
-      --accent: #7dd3fc;
-      --good: #34d399;
-      --warn: #f59e0b;
-      --danger:#ef4444;
-    }
-    html,body{height:100%;margin:0;background:#0b0c10;color:var(--ui-fg);font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"}
-    .app{position:fixed;inset:0;display:grid;place-items:center;}
-    .stage{position:relative;width:100%;height:100%;overflow:hidden;background:#000;}
-    video, canvas{position:absolute;inset:0;}
-    video{object-fit:cover;transform:scaleX(-1);}
-    #paint{pointer-events:none;}
-    .hud{position:absolute;inset:0;pointer-events:none;}
-
-    /* Controls */
-    .controls{position:absolute;left:1rem;bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap;pointer-events:auto;}
-    .btn{appearance:none;border:1px solid #2a2d34;background:var(--ui-bg);color:var(--ui-fg);padding:.5rem .75rem;border-radius:12px;backdrop-filter: blur(6px);cursor:pointer;display:inline-flex;align-items:center;gap:.5rem}
-    .btn:hover{border-color:#40444f}
-    .btn:active{transform:translateY(1px)}
-    .chip{display:inline-flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:999px;border:1px solid #2a2d34;background:var(--ui-bg)}
-    .swatch{width:1rem;height:1rem;border-radius:999px;border:1px solid #0003}
-    .range{display:flex;align-items:center;gap:.5rem;background:var(--ui-bg);padding:.4rem .6rem;border-radius:999px;border:1px solid #2a2d34}
-    .range input{accent-color:var(--accent)}
-
-    .status{position:absolute;right:1rem;bottom:1rem;display:flex;gap:.5rem;pointer-events:none}
-    .pill{background:var(--ui-bg);border:1px solid #2a2d34;border-radius:999px;padding:.35rem .6rem}
-
-    .topbar{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:center;padding: .5rem .75rem;gap:.5rem}
-    .title{background:var(--ui-bg);border:1px solid #2a2d34;border-radius:12px;padding:.4rem .6rem}
-
-    .start-overlay{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#0b0c10,#0b0c10e6 60%,#0b0c10f2)}
-    .start-card{max-width:520px;margin:0 1rem;background:var(--ui-bg);border:1px solid #2a2d34;border-radius:16px;padding:1rem 1.25rem;backdrop-filter: blur(8px);text-align:center}
-    .start-card h1{margin:.2rem 0 0;font-size:1.2rem}
-    .start-card p{opacity:.85;margin:.5rem 0 1rem}
-    .start-card button{pointer-events:auto}
-
-    .debug{position:absolute;left:1rem;top:4.25rem;max-width:min(46ch,80vw);background:var(--ui-bg);border:1px solid #2a2d34;border-radius:12px;padding:.5rem .75rem;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:12px;line-height:1.25;opacity:.85;pointer-events:auto}
-
-    @media (max-width:640px){
-      .debug{display:none}
-    }
-  </style>
-  <!-- MediaPipe Hands (legacy JS API) -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>Hand Draw – Air Sketch</title>
+<style>
+  body,html{margin:0;height:100%;background:#000;color:#fff;font-family:sans-serif}
+  .stage{position:relative;width:100%;height:100%;overflow:hidden}
+  video,canvas{position:absolute;inset:0}
+  video{object-fit:cover}
+  #paint{pointer-events:none}
+  .hud{position:absolute;inset:0;pointer-events:none;color:#fff;padding:8px;font-size:14px;}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 </head>
 <body>
-  <div class="app">
-    <div class="stage" id="stage">
-      <video id="video" playsinline muted></video>
-      <!-- Where we draw video + landmarks -->
-      <canvas id="view"></canvas>
-      <!-- Persistent paint layer -->
-      <canvas id="paint"></canvas>
-      <div class="hud">
-        <div class="topbar">
-          <div class="title">Hand Draw – Air Sketch</div>
-          <div class="pill" id="hint">Gesture: pinch to draw · open palm = idle</div>
-        </div>
-        <div class="debug" id="debug"></div>
-        <div class="controls">
-          <button class="btn" id="btnClear" title="Clear (double tap screen on mobile)">🧹 Clear</button>
-          <label class="chip" title="Color">
-            <span>Color</span>
-            <input id="color" type="color" value="#7dd3fc" style="background:transparent;border:none;width:2rem;height:1.75rem;padding:0;cursor:pointer" />
-          </label>
-          <label class="range" title="Brush size">
-            <span>Size</span>
-            <input id="size" type="range" min="2" max="30" value="6" />
-          </label>
-          <button class="btn" id="btnToggleMirror" title="Flip view (mirroring)">↔︎ Mirror</button>
-          <button class="btn" id="btnGuide" title="Show/hide guides">✳︎ Guides</button>
-        </div>
-        <div class="status">
-          <div class="pill" id="statMode">Mode: idle</div>
-          <div class="pill" id="statFps">FPS: –</div>
-        </div>
-      </div>
-      <div class="start-overlay" id="start">
-        <div class="start-card">
-          <h1>Hand‑draw in the air</h1>
-          <p>This runs in your browser. It needs your camera. Pinch your thumb and index finger to draw. Open palm to stop. Double‑tap to clear.</p>
-          <button class="btn" id="btnStart">Enable Camera</button>
-        </div>
-      </div>
-    </div>
+<div class="stage" id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="view"></canvas>
+  <canvas id="paint"></canvas>
+  <div class="hud">
+    <div id="statMode">Mode: idle</div>
+    <div id="statFps">FPS: –</div>
+    <div id="debug"></div>
   </div>
-
+</div>
 <script>
-(() => {
-  const video = document.getElementById('video');
-  const view = document.getElementById('view');
-  const paint = document.getElementById('paint');
-  const stage = document.getElementById('stage');
-  const debugEl = document.getElementById('debug');
-  const hint = document.getElementById('hint');
-  const statMode = document.getElementById('statMode');
-  const statFps = document.getElementById('statFps');
-  const btnStart = document.getElementById('btnStart');
-  const startOverlay = document.getElementById('start');
+const video = document.getElementById('video');
+const view = document.getElementById('view');
+const paint = document.getElementById('paint');
+const statMode = document.getElementById('statMode');
+const statFps = document.getElementById('statFps');
+const debugEl = document.getElementById('debug');
 
-  const btnClear = document.getElementById('btnClear');
-  const colorPicker = document.getElementById('color');
-  const sizeRange = document.getElementById('size');
-  const btnToggleMirror = document.getElementById('btnToggleMirror');
-  const btnGuide = document.getElementById('btnGuide');
+let mirrored = true;
+let lastPt = null;
+let brushColor = '#7dd3fc';
+let brushSize = 6;
+let frames=0,lastTime=performance.now(),fps=0;
 
-  let showGuides = true;
-  let mirrored = true; // mirror the preview by default (selfie view)
+function resize(){
+  const rect = view.getBoundingClientRect();
+  [view, paint].forEach(c => {c.width = rect.width; c.height = rect.height});
+}
+window.addEventListener('resize', resize);
+resize();
 
-  // Layout + projection state for cover-fit rendering
-  let cover = {sx:0, sy:0, sw:0, sh:0, dx:0, dy:0, dw:0, dh:0, srcW:0, srcH:0};
+const hands = new Hands({locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+hands.setOptions({maxNumHands:1, modelComplexity:1, minDetectionConfidence:0.5, minTrackingConfidence:0.5});
+hands.onResults(onResults);
 
-  // Drawing state
-  let drawing = false; // active when pinching
-  let lastPt = null;   // last fingertip position in canvas space
-  let brushColor = colorPicker.value;
-  let brushSize = parseFloat(sizeRange.value);
+const camera = new Camera(video, {
+  onFrame: async () => {await hands.send({image: video});},
+  width: 1280,
+  height: 720
+});
+camera.start();
 
-  // FPS meter
-  let lastTime = performance.now();
-  let frames = 0, fps = 0;
+function lmToCanvas(lm){
+  let x = lm.x * view.width;
+  let y = lm.y * view.height;
+  if(mirrored) x = view.width - x;
+  return {x, y, z: lm.z};
+}
 
-  function logDebug(lines){
-    debugEl.textContent = lines.join('\n');
-  }
+function pinchDistance(lms){
+  const tip = lmToCanvas(lms[8]);
+  const th = lmToCanvas(lms[4]);
+  return Math.hypot(tip.x - th.x, tip.y - th.y);
+}
 
-  function resize(){
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const rect = stage.getBoundingClientRect();
+function onResults(results){
+  const vctx = view.getContext('2d');
+  const pctx = paint.getContext('2d');
+  frames++; const now=performance.now(); if(now-lastTime>1000){fps=frames;frames=0;lastTime=now;statFps.textContent=`FPS: ${fps}`;}
+  vctx.clearRect(0,0,view.width,view.height);
+  vctx.save();
+  if(mirrored) vctx.scale(-1,1), vctx.translate(-view.width,0);
+  vctx.drawImage(video,0,0,view.width,view.height);
+  vctx.restore();
 
-    // Size canvases for crisp rendering
-    [view, paint].forEach(c => { c.width = rect.width * dpr; c.height = rect.height * dpr; c.style.width = rect.width + 'px'; c.style.height = rect.height + 'px'; });
+  if(results.multiHandLandmarks && results.multiHandLandmarks.length){
+    const lms = results.multiHandLandmarks[0];
+    const pinch = pinchDistance(lms);
+    const pinchActive = pinch < 40;
+    statMode.textContent = pinchActive ? 'Mode: draw' : 'Mode: idle';
 
-    // Compute object-fit: cover parameters for drawing the source video/image into the view canvas
-    const srcW = video.videoWidth || 1280;
-    const srcH = video.videoHeight || 720;
-    cover.srcW = srcW; cover.srcH = srcH;
-
-    const dstW = view.width; const dstH = view.height;
-    const scale = Math.max(dstW/srcW, dstH/srcH);
-    const sw = srcW * scale;
-    const sh = srcH * scale;
-    const sx = (dstW - sw) / 2;
-    const sy = (dstH - sh) / 2;
-    cover = {sx, sy, sw, sh, dx:sx, dy:sy, dw:sw, dh:sh, srcW, srcH};
-  }
-
-  window.addEventListener('resize', resize);
-
-  // MediaPipe Hands setup
-  const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-  hands.setOptions({
-    maxNumHands: 1,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
-  });
-
-  hands.onResults(onResults);
-
-  let camera;
-  btnStart.addEventListener('click', async () => {
-    startOverlay.style.display = 'none';
-    try{
-      camera = new Camera(video, {
-        onFrame: async () => {
-          await hands.send({image: video});
-        },
-        width: 1280,
-        height: 720
-      });
-      await camera.start();
-      // Wait for first frame to size correctly
-      video.addEventListener('loadedmetadata', resize, {once:true});
-      resize();
-    }catch(err){
-      alert('Failed to start camera: ' + err.message);
-      startOverlay.style.display = 'grid';
+    // Draw lines between landmarks (hand skeleton)
+    const connections = Hands.HAND_CONNECTIONS;
+    vctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    vctx.lineWidth = 2;
+    vctx.beginPath();
+    for(const [start,end] of connections){
+      const p1 = lmToCanvas(lms[start]);
+      const p2 = lmToCanvas(lms[end]);
+      vctx.moveTo(p1.x,p1.y);
+      vctx.lineTo(p2.x,p2.y);
     }
-  });
+    vctx.stroke();
 
-  // Controls
-  btnClear.addEventListener('click', () => clearPaint());
-  let lastTap=0; stage.addEventListener('touchend', () => { const now=Date.now(); if(now-lastTap<300) clearPaint(); lastTap=now; }, {passive:true});
-
-  colorPicker.addEventListener('input', e => { brushColor = e.target.value; });
-  sizeRange.addEventListener('input', e => { brushSize = parseFloat(e.target.value); });
-  btnToggleMirror.addEventListener('click', () => { mirrored = !mirrored; video.style.transform = mirrored? 'scaleX(-1)': 'none'; });
-  btnGuide.addEventListener('click', () => { showGuides=!showGuides; });
-
-  function clearPaint(){
-    const pctx = paint.getContext('2d');
-    pctx.clearRect(0,0,paint.width,paint.height);
-  }
-
-  // Map normalized landmark to canvas coords accounting for cover-fit and mirroring
-  function lmToCanvas(lm){
-    // MediaPipe gives x,y normalized to [0,1] over source dimensions, x to the right on the source image
-    let x = lm.x * cover.srcW;
-    let y = lm.y * cover.srcH;
-    // Scale to destination using the same cover scale
-    const scale = Math.max(view.width/cover.srcW, view.height/cover.srcH);
-    x = x * scale + cover.sx;
-    y = y * scale + cover.sy;
-    if(mirrored){
-      // Mirror around center of the destination rect (cover area)
-      const left = cover.sx, right = cover.sx + cover.sw;
-      x = right - (x - left);
-    }
-    return {x, y, z: lm.z};
-  }
-
-  function pinchDistance(lms){
-    const tip = lmToCanvas(lms[8]); // index tip
-    const th  = lmToCanvas(lms[4]); // thumb tip
-    const dx = tip.x - th.x, dy = tip.y - th.y; return Math.hypot(dx,dy);
-  }
-
-  function isOpenPalm(lms){
-    // Simple heuristic: average curl of fingers (tip to pip distance vs mcp to pip). Here: if pinch distance > threshold and middle tip far from palm
-    const d = pinchDistance(lms);
-    return d > 80; // pixels at canvas scale
-  }
-
-  function onResults(results){
-    const vctx = view.getContext('2d');
-    const pctx = paint.getContext('2d');
-
-    // FPS calc
-    frames++; const now = performance.now(); if(now - lastTime > 1000){ fps = frames; frames=0; lastTime = now; statFps.textContent = `FPS: ${fps}`; }
-
-    // Draw the camera frame into the view canvas using cover-fit
-    vctx.clearRect(0,0,view.width,view.height);
-    if(video.videoWidth && video.videoHeight){
-      vctx.save();
-      // Draw video respecting object-fit: cover
-      // We use drawImage with already computed dst rect
-      vctx.drawImage(video, cover.dx, cover.dy, cover.dw, cover.dh);
-      vctx.restore();
+    // Draw landmarks as dots
+    vctx.fillStyle = '#fff';
+    for(const lm of lms){
+      const p = lmToCanvas(lm);
+      vctx.beginPath();
+      vctx.arc(p.x,p.y,4,0,Math.PI*2);
+      vctx.fill();
     }
 
-    // Default mode
-    let mode = 'idle';
-
-    if(results.multiHandLandmarks && results.multiHandLandmarks.length){
-      const lms = results.multiHandLandmarks[0];
+    if(pinchActive){
       const tip = lmToCanvas(lms[8]);
-      const pinch = pinchDistance(lms);
-
-      // Gesture logic
-      const pinchActive = pinch < 40; // pixels
-      if(pinchActive){ mode = 'draw'; } else if(isOpenPalm(lms)){ mode = 'idle'; }
-
-      // Update drawing state
-      if(mode === 'draw'){
-        const pt = {x: tip.x, y: tip.y};
-        pctx.lineCap = 'round';
-        pctx.lineJoin = 'round';
+      if(lastPt){
         pctx.strokeStyle = brushColor;
         pctx.lineWidth = brushSize;
-        if(lastPt){
-          pctx.beginPath();
-          pctx.moveTo(lastPt.x, lastPt.y);
-          pctx.lineTo(pt.x, pt.y);
-          pctx.stroke();
-        }
-        lastPt = pt;
-      } else {
-        lastPt = null;
+        pctx.lineCap = 'round';
+        pctx.beginPath();
+        pctx.moveTo(lastPt.x,lastPt.y);
+        pctx.lineTo(tip.x,tip.y);
+        pctx.stroke();
       }
-
-      // Guides & landmarks
-      if(showGuides){
-        // Draw landmarks with MediaPipe utils but transformed
-        const path = new Path2D();
-        for(const lm of lms){
-          const p = lmToCanvas(lm);
-          path.moveTo(p.x+0.01,p.y);
-          path.arc(p.x,p.y, 4, 0, Math.PI*2);
-        }
-        vctx.fillStyle = 'rgba(255,255,255,0.9)';
-        vctx.fill(path);
-
-        // Fingertip cursor
-        vctx.beginPath();
-        vctx.arc(tip.x, tip.y, pinchActive ? 14 : 8, 0, Math.PI*2);
-        vctx.lineWidth = 2;
-        vctx.strokeStyle = pinchActive ? 'rgba(52,211,153,0.9)' : 'rgba(125,211,252,0.9)';
-        vctx.stroke();
-      }
-
-      // Status
-      statMode.textContent = `Mode: ${mode}`;
-      hint.textContent = pinchActive ? 'Drawing… release pinch to stop' : 'Pinch to draw · open palm = idle';
-
-      // Debug
-      logDebug([
-        `landmarks: ${lms.length}`,
-        `pinch(px): ${pinch.toFixed(1)}`,
-        `mode: ${mode}`,
-        `mirror: ${mirrored}`,
-        `brush: ${brushColor} @ ${brushSize}px`,
-        `cover: sx=${cover.sx.toFixed(1)} sy=${cover.sy.toFixed(1)} sw=${cover.sw.toFixed(1)} sh=${cover.sh.toFixed(1)}`
-      ]);
-
+      lastPt = tip;
     } else {
-      statMode.textContent = 'Mode: no-hand';
-      hint.textContent = 'Show your hand to start';
       lastPt = null;
     }
-  }
 
-  // Kick an immediate size for initial layout (helps on desktop before camera starts)
-  resize();
-})();
+    debugEl.textContent = `pinch: ${pinch.toFixed(1)}`;
+  } else {
+    statMode.textContent = 'Mode: no-hand';
+    lastPt = null;
+  }
+}
 </script>
 </body>
 </html>
