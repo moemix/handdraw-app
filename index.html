@@ -2,255 +2,327 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>HandDraw — Object-Fit Cover Correct Overlay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>Hand Draw – Air Sketch</title>
   <style>
-    :root { --bg:#0b0e12; --fg:#e7eef7; --muted:#8391a3; }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-    .app {
-      height: 100dvh; width: 100vw; display: grid; grid-template-rows: auto 1fr auto; gap: 8px; padding: 12px; }
-    header, footer { opacity: .8; font-size: 14px; }
-    .stage {
-      position: relative; width: 100%; height: 100%; border-radius: 14px; overflow: hidden; background: #0f131a; box-shadow: 0 2px 24px rgba(0,0,0,.4) inset;
+    :root{
+      --ui-bg: rgba(18,18,24,0.75);
+      --ui-fg: #e7e9ee;
+      --accent: #7dd3fc;
+      --good: #34d399;
+      --warn: #f59e0b;
+      --danger:#ef4444;
     }
-    video#camera {
-      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); /* mirror selfie view */
-      background: #111; opacity: 0.98;
+    html,body{height:100%;margin:0;background:#0b0c10;color:var(--ui-fg);font:16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"}
+    .app{position:fixed;inset:0;display:grid;place-items:center;}
+    .stage{position:relative;width:100%;height:100%;overflow:hidden;background:#000;}
+    video, canvas{position:absolute;inset:0;}
+    video{object-fit:cover;transform:scaleX(-1);}
+    #paint{pointer-events:none;}
+    .hud{position:absolute;inset:0;pointer-events:none;}
+
+    /* Controls */
+    .controls{position:absolute;left:1rem;bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap;pointer-events:auto;}
+    .btn{appearance:none;border:1px solid #2a2d34;background:var(--ui-bg);color:var(--ui-fg);padding:.5rem .75rem;border-radius:12px;backdrop-filter: blur(6px);cursor:pointer;display:inline-flex;align-items:center;gap:.5rem}
+    .btn:hover{border-color:#40444f}
+    .btn:active{transform:translateY(1px)}
+    .chip{display:inline-flex;align-items:center;gap:.5rem;padding:.4rem .55rem;border-radius:999px;border:1px solid #2a2d34;background:var(--ui-bg)}
+    .swatch{width:1rem;height:1rem;border-radius:999px;border:1px solid #0003}
+    .range{display:flex;align-items:center;gap:.5rem;background:var(--ui-bg);padding:.4rem .6rem;border-radius:999px;border:1px solid #2a2d34}
+    .range input{accent-color:var(--accent)}
+
+    .status{position:absolute;right:1rem;bottom:1rem;display:flex;gap:.5rem;pointer-events:none}
+    .pill{background:var(--ui-bg);border:1px solid #2a2d34;border-radius:999px;padding:.35rem .6rem}
+
+    .topbar{position:absolute;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:center;padding: .5rem .75rem;gap:.5rem}
+    .title{background:var(--ui-bg);border:1px solid #2a2d34;border-radius:12px;padding:.4rem .6rem}
+
+    .start-overlay{position:absolute;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,#0b0c10,#0b0c10e6 60%,#0b0c10f2)}
+    .start-card{max-width:520px;margin:0 1rem;background:var(--ui-bg);border:1px solid #2a2d34;border-radius:16px;padding:1rem 1.25rem;backdrop-filter: blur(8px);text-align:center}
+    .start-card h1{margin:.2rem 0 0;font-size:1.2rem}
+    .start-card p{opacity:.85;margin:.5rem 0 1rem}
+    .start-card button{pointer-events:auto}
+
+    .debug{position:absolute;left:1rem;top:4.25rem;max-width:min(46ch,80vw);background:var(--ui-bg);border:1px solid #2a2d34;border-radius:12px;padding:.5rem .75rem;white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:12px;line-height:1.25;opacity:.85;pointer-events:auto}
+
+    @media (max-width:640px){
+      .debug{display:none}
     }
-    canvas#overlay { position: absolute; inset: 0; pointer-events: none; }
-    .hud { position: absolute; right: 10px; top: 10px; background: rgba(3,6,10,.5); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.06); padding: 8px 10px; border-radius: 10px; font-size: 12px; color: var(--muted); }
-    .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    label { display: inline-flex; gap: 6px; align-items: center; }
-    input[type="checkbox"] { accent-color: #4aa3ff; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   </style>
+  <!-- MediaPipe Hands (legacy JS API) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 </head>
 <body>
   <div class="app">
-    <header>
-      <strong>HandDraw</strong> — precise overlay alignment (object-fit: <span class="mono">cover</span> safe)
-    </header>
     <div class="stage" id="stage">
-      <video id="camera" autoplay playsinline muted></video>
-      <canvas id="overlay"></canvas>
+      <video id="video" playsinline muted></video>
+      <!-- Where we draw video + landmarks -->
+      <canvas id="view"></canvas>
+      <!-- Persistent paint layer -->
+      <canvas id="paint"></canvas>
       <div class="hud">
+        <div class="topbar">
+          <div class="title">Hand Draw – Air Sketch</div>
+          <div class="pill" id="hint">Gesture: pinch to draw · open palm = idle</div>
+        </div>
+        <div class="debug" id="debug"></div>
         <div class="controls">
-          <label title="Use pixel-snapped lines for razor-sharp rendering"><input type="checkbox" id="snapPx" checked> snap px</label>
-          <label title="Flip overlay horizontally to match mirrored video"><input type="checkbox" id="mirror" checked> mirror overlay</label>
-          <span id="info" class="mono">—</span>
+          <button class="btn" id="btnClear" title="Clear (double tap screen on mobile)">🧹 Clear</button>
+          <label class="chip" title="Color">
+            <span>Color</span>
+            <input id="color" type="color" value="#7dd3fc" style="background:transparent;border:none;width:2rem;height:1.75rem;padding:0;cursor:pointer" />
+          </label>
+          <label class="range" title="Brush size">
+            <span>Size</span>
+            <input id="size" type="range" min="2" max="30" value="6" />
+          </label>
+          <button class="btn" id="btnToggleMirror" title="Flip view (mirroring)">↔︎ Mirror</button>
+          <button class="btn" id="btnGuide" title="Show/hide guides">✳︎ Guides</button>
+        </div>
+        <div class="status">
+          <div class="pill" id="statMode">Mode: idle</div>
+          <div class="pill" id="statFps">FPS: –</div>
+        </div>
+      </div>
+      <div class="start-overlay" id="start">
+        <div class="start-card">
+          <h1>Hand‑draw in the air</h1>
+          <p>This runs in your browser. It needs your camera. Pinch your thumb and index finger to draw. Open palm to stop. Double‑tap to clear.</p>
+          <button class="btn" id="btnStart">Enable Camera</button>
         </div>
       </div>
     </div>
-    <footer>
-      Drop-in utility: call <span class="mono">window.drawLandmarks(landmarks)</span> where each landmark is <span class="mono">{x,y}</span> normalized to the source video.
-    </footer>
   </div>
 
 <script>
-// ------ Display & Overlay Mapper (object-fit: cover compensation) + MediaPipe Hands ------
-(function() {
-  const video = document.getElementById('camera');
-  const canvas = document.getElementById('overlay');
-  const info = document.getElementById('info');
-  const snapPx = document.getElementById('snapPx');
-  const mirrorToggle = document.getElementById('mirror');
-  const ctx = canvas.getContext('2d');
+(() => {
+  const video = document.getElementById('video');
+  const view = document.getElementById('view');
+  const paint = document.getElementById('paint');
+  const stage = document.getElementById('stage');
+  const debugEl = document.getElementById('debug');
+  const hint = document.getElementById('hint');
+  const statMode = document.getElementById('statMode');
+  const statFps = document.getElementById('statFps');
+  const btnStart = document.getElementById('btnStart');
+  const startOverlay = document.getElementById('start');
 
-  // Keep measurements for mapping
-  let layout = {
-    containerW: 0, containerH: 0,
-    videoW: 0, videoH: 0,
-    scale: 1, drawnW: 0, drawnH: 0,
-    offsetX: 0, offsetY: 0,
-  };
+  const btnClear = document.getElementById('btnClear');
+  const colorPicker = document.getElementById('color');
+  const sizeRange = document.getElementById('size');
+  const btnToggleMirror = document.getElementById('btnToggleMirror');
+  const btnGuide = document.getElementById('btnGuide');
 
-  // Compute mapping from source video space -> displayed pixels (cover)
-  function computeLayout() {
-    const stage = document.getElementById('stage');
-    const cw = stage.clientWidth;
-    const ch = stage.clientHeight;
-    const vw = video.videoWidth || 1280; // fallback until metadata
-    const vh = video.videoHeight || 720;
+  let showGuides = true;
+  let mirrored = true; // mirror the preview by default (selfie view)
 
-    const scale = Math.max(cw / vw, ch / vh); // cover
-    const drawnW = vw * scale;
-    const drawnH = vh * scale;
-    const offsetX = (cw - drawnW) / 2;
-    const offsetY = (ch - drawnH) / 2;
+  // Layout + projection state for cover-fit rendering
+  let cover = {sx:0, sy:0, sw:0, sh:0, dx:0, dy:0, dw:0, dh:0, srcW:0, srcH:0};
 
-    layout = { containerW: cw, containerH: ch, videoW: vw, videoH: vh, scale, drawnW, drawnH, offsetX, offsetY };
+  // Drawing state
+  let drawing = false; // active when pinching
+  let lastPt = null;   // last fingertip position in canvas space
+  let brushColor = colorPicker.value;
+  let brushSize = parseFloat(sizeRange.value);
 
-    // Resize canvas for sharp rendering at devicePixelRatio, but CSS-pixel match the stage
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    canvas.style.width = cw + 'px';
-    canvas.style.height = ch + 'px';
-    canvas.width = Math.round(cw * dpr);
-    canvas.height = Math.round(ch * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // logical units = CSS px
+  // FPS meter
+  let lastTime = performance.now();
+  let frames = 0, fps = 0;
+
+  function logDebug(lines){
+    debugEl.textContent = lines.join('\n');
   }
 
-  // Map a normalized point (0..1 in source video space) to displayed pixels
-  function mapPoint(pt /* {x,y} in [0,1] */) {
-    const x = pt.x * layout.videoW * layout.scale + layout.offsetX;
-    const y = pt.y * layout.videoH * layout.scale + layout.offsetY;
-    return { x, y };
+  function resize(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = stage.getBoundingClientRect();
+
+    // Size canvases for crisp rendering
+    [view, paint].forEach(c => { c.width = rect.width * dpr; c.height = rect.height * dpr; c.style.width = rect.width + 'px'; c.style.height = rect.height + 'px'; });
+
+    // Compute object-fit: cover parameters for drawing the source video/image into the view canvas
+    const srcW = video.videoWidth || 1280;
+    const srcH = video.videoHeight || 720;
+    cover.srcW = srcW; cover.srcH = srcH;
+
+    const dstW = view.width; const dstH = view.height;
+    const scale = Math.max(dstW/srcW, dstH/srcH);
+    const sw = srcW * scale;
+    const sh = srcH * scale;
+    const sx = (dstW - sw) / 2;
+    const sy = (dstH - sh) / 2;
+    cover = {sx, sy, sw, sh, dx:sx, dy:sy, dw:sw, dh:sh, srcW, srcH};
   }
 
-  // Map an array of normalized points
-  function mapPoints(points) { return points.map(mapPoint); }
+  window.addEventListener('resize', resize);
 
-  // Optional crisp 1px lines using half-pixel translate
-  function crisp() {
-    if (!snapPx.checked) return;
-    ctx.translate(0.5, 0.5);
-  }
+  // MediaPipe Hands setup
+  const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
 
-  // Public: draw landmarks (array of {x,y} normalized to source video)
-  function drawLandmarks(landmarks, {connections, color='white', radius=3, lineWidth=2} = {}) {
-    if (!landmarks || !landmarks.length) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      return;
-    }
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  hands.onResults(onResults);
 
-    // Handle mirroring: video is mirrored via CSS transform, mirror overlay to match
-    ctx.save();
-    if (mirrorToggle.checked) {
-      ctx.translate(layout.containerW, 0);
-      ctx.scale(-1, 1);
-    }
-
-    crisp();
-
-    const px = mapPoints(landmarks);
-
-    // Draw connections first
-    if (connections && connections.length) {
-      ctx.beginPath();
-      ctx.lineWidth = lineWidth; ctx.strokeStyle = color; ctx.globalAlpha = 0.9;
-      for (const [a, b] of connections) {
-        const p = px[a], q = px[b];
-        if (!p || !q) continue;
-        ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y);
-      }
-      ctx.stroke();
-    }
-
-    // Draw points
-    ctx.fillStyle = color; ctx.globalAlpha = 1;
-    for (const p of px) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
-  // Expose for integration: pass normalized landmarks from your detector
-  window.drawLandmarks = drawLandmarks;
-  // Also expose mapper if you need exact pixel coords
-  window.mapPointFromNormalized = mapPoint;
-
-  // Keep info label updated for debugging
-  function updateInfo() {
-    const {containerW, containerH, videoW, videoH, scale, offsetX, offsetY} = layout;
-    info.textContent = `src ${videoW}×${videoH} | view ${containerW}×${containerH} | scale ${scale.toFixed(3)} | offset (${offsetX.toFixed(1)},${offsetY.toFixed(1)})`;
-  }
-
-  // Resize observer keeps canvas aligned to the stage
-  const ro = new ResizeObserver(() => { computeLayout(); updateInfo(); });
-  ro.observe(document.getElementById('stage'));
-
-  // Recompute when video metadata (intrinsic size) is ready
-  video.addEventListener('loadedmetadata', () => { computeLayout(); updateInfo(); });
-
-  // --- Camera bootstrap ---
-  async function startCam() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
-      video.srcObject = stream;
-    } catch (err) {
-      console.error('getUserMedia failed', err);
-    }
-  }
-  startCam();
-
-  // ===== MediaPipe Hands integration =====
-  // Hand connections (indexes 0..20)
-  const HAND_CONNECTIONS = [
-    [0,1],[1,2],[2,3],[3,4],           // Thumb
-    [0,5],[5,6],[6,7],[7,8],           // Index
-    [5,9],[9,10],[10,11],[11,12],      // Middle
-    [9,13],[13,14],[14,15],[15,16],    // Ring
-    [13,17],[17,18],[18,19],[19,20],   // Pinky
-    [0,5],[5,9],[9,13],[13,17]         // Palm chain
-  ];
-
-  let hands; // created after scripts load
-
-  // Load MediaPipe Hands dynamically (no external bundler needed)
-  const mpBase = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240';
-  const mpCam = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675469244';
-
-  // Inject scripts
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script'); s.src = src; s.async = true;
-      s.onload = resolve; s.onerror = reject; document.head.appendChild(s);
-    });
-  }
-
-  (async () => {
-    try {
-      await loadScript(mpCam);
-      await loadScript(mpBase);
-
-      // global Hands & Camera now available
-      hands = new Hands({
-        locateFile: (file) => `${mpBase}/${file}`
-      });
-      hands.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.6,
-        minTrackingConfidence: 0.6,
-      });
-
-      hands.onResults(onResults);
-
-      // Use MediaPipe's Camera helper to pump frames
-      const cam = new Camera(video, {
-        onFrame: async () => { await hands.send({image: video}); },
+  let camera;
+  btnStart.addEventListener('click', async () => {
+    startOverlay.style.display = 'none';
+    try{
+      camera = new Camera(video, {
+        onFrame: async () => {
+          await hands.send({image: video});
+        },
         width: 1280,
-        height: 720,
+        height: 720
       });
-      cam.start();
-    } catch (e) {
-      console.error('Failed to load MediaPipe Hands', e);
+      await camera.start();
+      // Wait for first frame to size correctly
+      video.addEventListener('loadedmetadata', resize, {once:true});
+      resize();
+    }catch(err){
+      alert('Failed to start camera: ' + err.message);
+      startOverlay.style.display = 'grid';
     }
-  })();
+  });
 
-  function onResults(results) {
-    computeLayout(); // ensure mapping uses actual video dims
+  // Controls
+  btnClear.addEventListener('click', () => clearPaint());
+  let lastTap=0; stage.addEventListener('touchend', () => { const now=Date.now(); if(now-lastTap<300) clearPaint(); lastTap=now; }, {passive:true});
 
-    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-      drawLandmarks([], {}); // clear
-      return;
-    }
+  colorPicker.addEventListener('input', e => { brushColor = e.target.value; });
+  sizeRange.addEventListener('input', e => { brushSize = parseFloat(e.target.value); });
+  btnToggleMirror.addEventListener('click', () => { mirrored = !mirrored; video.style.transform = mirrored? 'scaleX(-1)': 'none'; });
+  btnGuide.addEventListener('click', () => { showGuides=!showGuides; });
 
-    // We draw only the first hand (extend as needed)
-    const lm = results.multiHandLandmarks[0];
-
-    // MediaPipe gives normalized coords in source video space already
-    drawLandmarks(lm.map(p => ({x: p.x, y: p.y})), {
-      connections: HAND_CONNECTIONS,
-      color: 'white',
-      radius: 3,
-      lineWidth: 2
-    });
+  function clearPaint(){
+    const pctx = paint.getContext('2d');
+    pctx.clearRect(0,0,paint.width,paint.height);
   }
+
+  // Map normalized landmark to canvas coords accounting for cover-fit and mirroring
+  function lmToCanvas(lm){
+    // MediaPipe gives x,y normalized to [0,1] over source dimensions, x to the right on the source image
+    let x = lm.x * cover.srcW;
+    let y = lm.y * cover.srcH;
+    // Scale to destination using the same cover scale
+    const scale = Math.max(view.width/cover.srcW, view.height/cover.srcH);
+    x = x * scale + cover.sx;
+    y = y * scale + cover.sy;
+    if(mirrored){
+      // Mirror around center of the destination rect (cover area)
+      const left = cover.sx, right = cover.sx + cover.sw;
+      x = right - (x - left);
+    }
+    return {x, y, z: lm.z};
+  }
+
+  function pinchDistance(lms){
+    const tip = lmToCanvas(lms[8]); // index tip
+    const th  = lmToCanvas(lms[4]); // thumb tip
+    const dx = tip.x - th.x, dy = tip.y - th.y; return Math.hypot(dx,dy);
+  }
+
+  function isOpenPalm(lms){
+    // Simple heuristic: average curl of fingers (tip to pip distance vs mcp to pip). Here: if pinch distance > threshold and middle tip far from palm
+    const d = pinchDistance(lms);
+    return d > 80; // pixels at canvas scale
+  }
+
+  function onResults(results){
+    const vctx = view.getContext('2d');
+    const pctx = paint.getContext('2d');
+
+    // FPS calc
+    frames++; const now = performance.now(); if(now - lastTime > 1000){ fps = frames; frames=0; lastTime = now; statFps.textContent = `FPS: ${fps}`; }
+
+    // Draw the camera frame into the view canvas using cover-fit
+    vctx.clearRect(0,0,view.width,view.height);
+    if(video.videoWidth && video.videoHeight){
+      vctx.save();
+      // Draw video respecting object-fit: cover
+      // We use drawImage with already computed dst rect
+      vctx.drawImage(video, cover.dx, cover.dy, cover.dw, cover.dh);
+      vctx.restore();
+    }
+
+    // Default mode
+    let mode = 'idle';
+
+    if(results.multiHandLandmarks && results.multiHandLandmarks.length){
+      const lms = results.multiHandLandmarks[0];
+      const tip = lmToCanvas(lms[8]);
+      const pinch = pinchDistance(lms);
+
+      // Gesture logic
+      const pinchActive = pinch < 40; // pixels
+      if(pinchActive){ mode = 'draw'; } else if(isOpenPalm(lms)){ mode = 'idle'; }
+
+      // Update drawing state
+      if(mode === 'draw'){
+        const pt = {x: tip.x, y: tip.y};
+        pctx.lineCap = 'round';
+        pctx.lineJoin = 'round';
+        pctx.strokeStyle = brushColor;
+        pctx.lineWidth = brushSize;
+        if(lastPt){
+          pctx.beginPath();
+          pctx.moveTo(lastPt.x, lastPt.y);
+          pctx.lineTo(pt.x, pt.y);
+          pctx.stroke();
+        }
+        lastPt = pt;
+      } else {
+        lastPt = null;
+      }
+
+      // Guides & landmarks
+      if(showGuides){
+        // Draw landmarks with MediaPipe utils but transformed
+        const path = new Path2D();
+        for(const lm of lms){
+          const p = lmToCanvas(lm);
+          path.moveTo(p.x+0.01,p.y);
+          path.arc(p.x,p.y, 4, 0, Math.PI*2);
+        }
+        vctx.fillStyle = 'rgba(255,255,255,0.9)';
+        vctx.fill(path);
+
+        // Fingertip cursor
+        vctx.beginPath();
+        vctx.arc(tip.x, tip.y, pinchActive ? 14 : 8, 0, Math.PI*2);
+        vctx.lineWidth = 2;
+        vctx.strokeStyle = pinchActive ? 'rgba(52,211,153,0.9)' : 'rgba(125,211,252,0.9)';
+        vctx.stroke();
+      }
+
+      // Status
+      statMode.textContent = `Mode: ${mode}`;
+      hint.textContent = pinchActive ? 'Drawing… release pinch to stop' : 'Pinch to draw · open palm = idle';
+
+      // Debug
+      logDebug([
+        `landmarks: ${lms.length}`,
+        `pinch(px): ${pinch.toFixed(1)}`,
+        `mode: ${mode}`,
+        `mirror: ${mirrored}`,
+        `brush: ${brushColor} @ ${brushSize}px`,
+        `cover: sx=${cover.sx.toFixed(1)} sy=${cover.sy.toFixed(1)} sw=${cover.sw.toFixed(1)} sh=${cover.sh.toFixed(1)}`
+      ]);
+
+    } else {
+      statMode.textContent = 'Mode: no-hand';
+      hint.textContent = 'Show your hand to start';
+      lastPt = null;
+    }
+  }
+
+  // Kick an immediate size for initial layout (helps on desktop before camera starts)
+  resize();
 })();
 </script>
 </body>
